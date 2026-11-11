@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LocModel 注入器 v0.1 — Qwen-Image 2.1 校准参数直连</title>
+<style>
+  :root{
+    --bg:#0f1216; --panel:#171c22; --panel2:#1e242b; --line:#2a323b;
+    --fg:#dfe6ee; --dim:#8a97a6; --accent:#4aa8ff; --ok:#38c172; --warn:#f0a020; --err:#ef4b5a;
+    --mono:"Cascadia Mono",Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 "Microsoft YaHei UI","Segoe UI",sans-serif}
+  header{display:flex;align-items:center;gap:14px;padding:10px 18px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+  header h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.5px}
+  header .ver{font-size:11px;color:var(--dim);border:1px solid var(--line);padding:1px 6px;border-radius:4px}
+  #conn{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--err);box-shadow:0 0 6px currentColor}
+  .dot.on{background:var(--ok)} .dot.wait{background:var(--warn)}
+  main{display:grid;grid-template-columns:392px 1fr;gap:14px;padding:14px 18px 40px;align-items:start}
+  @media(max-width:1080px){main{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-bottom:12px;overflow:hidden}
+  .card h2{font-size:12px;font-weight:600;color:var(--dim);margin:0;padding:9px 12px;border-bottom:1px solid var(--line);
+    letter-spacing:1px;text-transform:uppercase;display:flex;align-items:center;gap:8px}
+  .card .body{padding:12px}
+  label{display:block;font-size:12px;color:var(--dim);margin:0 0 4px}
+  input,select,textarea{width:100%;background:var(--panel2);color:var(--fg);border:1px solid var(--line);
+    border-radius:5px;padding:6px 8px;font:inherit;font-size:13px;outline:none}
+  textarea{resize:vertical;font-size:12.5px;line-height:1.5}
+  input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+  .row{display:grid;gap:10px;margin-bottom:10px}
+  .r2{grid-template-columns:1fr 1fr}.r3{grid-template-columns:1fr 1fr 1fr}.r4{grid-template-columns:1fr 1fr 1fr 1fr}
+  button{background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:5px;
+    padding:7px 12px;font:inherit;font-size:13px;cursor:pointer;transition:.15s}
+  button:hover{border-color:var(--accent);color:#fff}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#07131f;font-weight:600}
+  button.primary:hover{filter:brightness(1.1)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button+button{margin-left:8px}
+  .tier{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
+  .tier button{padding:9px 4px;text-align:center;line-height:1.3}
+  .tier button b{display:block;font-size:13px}
+  .tier button span{font-size:10.5px;color:var(--dim)}
+  .tier button.sel{border-color:var(--accent);background:#12314a;color:#fff}
+  .tier button.sel span{color:#9dc9ef}
+  #stage{position:relative;min-height:420px;display:flex;align-items:center;justify-content:center;
+    background:#0b0e11;border:1px dashed var(--line);border-radius:8px;overflow:hidden}
+  #stage img{max-width:100%;max-height:78vh;display:block}
+  #stage .hint{color:var(--dim);font-size:13px;text-align:center;padding:20px}
+  #log{font-family:var(--mono);font-size:11.5px;line-height:1.65;color:#9aa7b5;max-height:180px;overflow:auto;
+    background:#0b0e11;border:1px solid var(--line);border-radius:6px;padding:8px}
+  #log .e{color:var(--err)} #log .o{color:var(--ok)} #log .w{color:var(--warn)}
+  .kv{font-family:var(--mono);font-size:11.5px;color:var(--dim);white-space:pre-wrap;word-break:break-all}
+  .bar{height:3px;background:var(--panel2);border-radius:2px;overflow:hidden;margin-bottom:8px}
+  .bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .3s}
+  .tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:3px;border:1px solid var(--line);color:var(--dim);margin-right:5px}
+  .note{font-size:11.5px;color:var(--dim);line-height:1.6;margin-top:8px;padding-left:9px;border-left:2px solid var(--line)}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<header>
+  <h1>LocModel 注入器</h1><span class="ver">v0.1</span>
+  <div id="conn"><span class="dot" id="dot"></span><span id="connTxt">未连接</span>
+    <button id="btnScan" style="padding:4px 9px;font-size:12px">探测端口</button></div>
+</header>
+
+<main>
+  <div>
+    <div class="card">
+      <h2>量化档位 · 校准预设</h2>
+      <div class="body">
+        <div class="tier" id="tier">
+          <button data-t="Q3_K"><b>Q3_K</b><span>3.05 GB · ~55s</span></button>
+          <button data-t="Q4_K"><b>Q4_K</b><span>3.91 GB · ~95s</span></button>
+          <button data-t="Q6_K"><b>Q6_K</b><span>5.59 GB · ~175s</span></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>采样参数</h2>
+      <div class="body">
+        <div class="row"><div>
+          <label>提示词</label>
+          <textarea id="prompt" rows="4"></textarea>
+        </div></div>
+        <div class="row"><div>
+          <label>负面提示词</label>
+          <textarea id="neg" rows="3"></textarea>
+        </div></div>
+        <div class="row r2">
+          <div><label>宽</label><input id="w" type="number" step="32" value="1344"></div>
+          <div><label>高</label><input id="h" type="number" step="32" value="768"></div>
+        </div>
+        <div class="row r3">
+          <div><label>步数</label><input id="steps" type="number" value="28" min="1" max="100"></div>
+          <div><label>CFG</label><input id="cfg" type="number" step="0.05" value="1.6"></div>
+          <div><label>eta</label><input id="eta" type="number" step="0.1" value="0"></div>
+        </div>
+        <div class="row r2">
+          <div><label>采样器</label>
+            <select id="sampler">
+              <option value="euler">euler</option><option value="euler_a">euler_a</option>
+              <option value="heun">heun</option><option value="dpm2">dpm2</option>
+              <option value="dpm++2m">dpm++2m</option><option value="dpm++2mv2">dpm++2mv2</option>
+              <option value="ipndm">ipndm</option><option value="lcm">lcm</option>
+            </select></div>
+          <div><label>调度器</label>
+            <select id="sched">
+              <option value="discrete">discrete</option><option value="karras">karras</option>
+              <option value="exponential">exponential</option><option value="ays">ays</option>
+              <option value="gits">gits</option><option value="logit_normal">logit_normal</option>
+              <option value="flux">flux</option><option value="flux2">flux2</option>
+              <option value="beta">beta</option><option value="default">default(auto)</option>
+            </select></div>
+        </div>
+        <div class="row r3">
+          <div><label>flow_shift</label><input id="shift" type="number" step="0.1" value="3"></div>
+          <div><label>seed（空=随机）</label><input id="seed" type="number" placeholder="随机"></div>
+          <div><label>distilled_guidance</label><input id="dg" type="number" step="0.1" value="3.5"></div>
+        </div>
+        <button class="primary" id="btnGen" style="width:100%">生成</button>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>画布</h2>
+      <div class="body">
+        <div class="bar"><i id="prog"></i></div>
+        <div id="stage"><div class="hint">连接引擎后点击「生成」<br><span style="font-size:11.5px">连接的是 LocModel 内置 sd-server，出图直接走引擎 HTTP API，不经 GUI 参数</span></div></div>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+          <button id="btnDl" disabled>下载 PNG</button>
+          <button id="btnLib" disabled>保存到图库目录</button>
+          <button id="btnIdx" disabled>写入 images.json</button>
+          <button id="btnCopy" disabled>复制参数 JSON</button>
+        </div>
+        <div class="note">
+          写入 images.json 前请先退出 LocModel 界面：GUI 运行中会在内存持有索引副本，退出时回写会覆盖追加内容。
+        </div>
+        <div class="kv" id="meta" style="margin-top:10px"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>运行日志</h2>
+      <div class="body"><div id="log"></div></div>
+    </div>
+  </div>
+</main>
+
+<script>
+/* ============ 校准结论常量（2026-11-10 实测） ============ */
+const CAL = {
+  common: { sampler:"euler", sched:"discrete", shift:3.0, steps:28, cfg:1.6, dg:3.5, eta:0 },
+  baseNeg: "模糊，水彩纸纹，灰雾，低对比，过曝，噪点，涂抹感，失真",
+  tiers: {
+    Q3_K: { cfg:1.6, extraNeg:"颗粒、噪点、脏色、斑驳", secs:"~55s" },
+    Q4_K: { cfg:1.6, extraNeg:"模糊、涂抹、柔焦、细节缺失", secs:"~95s" },
+    Q6_K: { cfg:1.6, extraNeg:"", secs:"~175s" }
+  }
+};
+const PORTS = [8790, 8686, 8899, 8080, 7860, 1234, 9090, 5000];
+const LS = "locmodel_injector_v01";
+
+let BASE = null, last = null, tier = "Q3_K";
+const $ = id => document.getElementById(id);
+const log = (m, c="") => { const d=$("log"); const t=new Date().toLocaleTimeString();
+  d.insertAdjacentHTML("beforeend", `<div class="${c}">[${t}] ${esc(m)}</div>`); d.scrollTop=d.scrollHeight; };
+const esc = s => String(s).replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const setConn = (s, txt) => { $("dot").className = "dot " + s; $("connTxt").textContent = txt; };
+
+/* ============ 端口自发现 ============ */
+async function probe(port){
+  const ac = new AbortController();
+  const to = setTimeout(()=>ac.abort(), 800);
+  try{
+    const r = await fetch(`http://127.0.0.1:${port}/sdcpp/v1/capabilities`, {signal:ac.signal});
+    if(!r.ok) return null;
+    const j = await r.json();
+    return { port, caps:j };
+  }catch(e){ return null; } finally { clearTimeout(to); }
+}
+async function scan(){
+  setConn("wait","探测中…"); $("btnScan").disabled = true;
+  log("并发探测端口：" + PORTS.join(", "));
+  const res = await Promise.all(PORTS.map(probe));
+  const hit = res.filter(Boolean);
+  $("btnScan").disabled = false;
+  if(!hit.length){
+    setConn("", "未找到引擎"); log("未发现监听中的 sd-server，请确认 LocModel 或独立实例已启动", "e");
+    return null;
+  }
+  hit.sort((a,b)=>PORTS.indexOf(a.port)-PORTS.indexOf(b.port));
+  const first = hit[0];
+  BASE = `http://127.0.0.1:${first.port}`;
+  setConn("on", `已连接 :${first.port}`);
+  log(`命中 ${hit.length} 个端口：${hit.map(h=>h.port).join(", ")}，锁定 ${first.port}`, "o");
+  const caps = first.caps || {};
+  const keys = Object.keys(caps);
+  log(`capabilities 字段数 ${keys.length}；sample_params ${caps.sample_params ? "存在" : "缺失"}`);
+  const saved = JSON.parse(localStorage.getItem(LS) || "{}");
+  saved.port = first.port; localStorage.setItem(LS, JSON.stringify(saved));
+  return first;
+}
+
+/* ============ 参数组装（UI → 引擎字段映射） ============ */
+function buildParams(){
+  const sp = {
+    sample_steps: +$("steps").value,
+    sample_method: $("sampler").value,
+    scheduler: $("sched").value,
+    eta: +$("eta").value,
+    guidance: { txt_cfg: +$("cfg").value, distilled_guidance: +$("dg").value }
+  };
+  const sh = $("shift").value.trim();
+  if(sh !== "" && $("sched").value !== "default") sp.flow_shift = +sh;
+  const seedTxt = $("seed").value.trim();
+  const payload = {
+    prompt: $("prompt").value,
+    negative_prompt: $("neg").value,
+    width: +$("w").value,
+    height: +$("h").value,
+    seed: seedTxt === "" ? Math.floor(Math.random()*2147483647) : +seedTxt,
+    sample_params: sp
+  };
+  return payload;
+}
+
+/* ============ 生成 ============ */
+let busy = false;
+async function generate(){
+  if(busy) return;
+  if(!BASE){ const h = await scan(); if(!h) return; }
+  busy = true; $("btnGen").disabled = true; $("prog").style.width = "2%";
+  const payload = buildParams();
+  log(`POST img_gen  seed=${payload.seed}  ${payload.width}x${payload.height}  steps=${payload.sample_params.sample_steps}  cfg=${payload.sample_params.guidance.txt_cfg}  ${payload.sample_params.scheduler}/shift${payload.sample_params.flow_shift ?? "-"}`);
+  const t0 = performance.now();
+  try{
+    const r = await fetch(BASE + "/sdcpp/v1/img_gen", {
+      method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)
+    });
+    const job = await r.json();
+    if(!job.poll_url){
+      log("提交失败：" + JSON.stringify(job).slice(0,400), "e"); busy=false; $("btnGen").disabled=false; $("prog").style.width="0"; return;
+    }
+    const jid = job.poll_url.replace(/\/$/,"").split("/").pop();
+    log("任务已受理 job=" + jid);
+    let tick = 0, j = null;
+    while(true){
+      await new Promise(s=>setTimeout(s,2000));
+      const rr = await fetch(BASE + "/sdcpp/v1/jobs/" + jid);
+      j = await rr.json();
+      const st = j.status;
+      tick += 2;
+      $("prog").style.width = Math.min(95, 5 + tick*1.2) + "%";
+      if(st === "completed" || st === "succeeded" || st === "done") break;
+      if(st === "failed" || st === "error" || st === "canceled"){ log("任务失败：" + JSON.stringify(j).slice(0,500), "e"); throw new Error("job failed"); }
+      if(tick > 900){ log("轮询超时（15 分钟）", "e"); throw new Error("timeout"); }
+      if(tick % 10 === 0) log(`运行中… ${tick}s  status=${st}`);
+    }
+    const img = j.result && j.result.images && j.result.images[0];
+    if(!img || !img.b64_json) { log("返回无图像数据：" + JSON.stringify(j).slice(0,400), "e"); throw new Error("no image"); }
+    const secs = +((performance.now() - t0)/1000).toFixed(1);
+    last = {
+      b64: img.b64_json,
+      secs,
+      payload,
+      name: `LocModel_${Date.now()}_1.png`,
+      model: tier
+    };
+    $("stage").innerHTML = `<img src="data:image/png;base64,${img.b64_json}" alt="result">`;
+    $("prog").style.width = "100%";
+    $("btnDl").disabled = $("btnLib").disabled = $("btnIdx").disabled = $("btnCopy").disabled = false;
+    $("meta").textContent = [
+      `档位 ${tier}   seed ${payload.seed}   ${payload.width}×${payload.height}`,
+      `steps ${payload.sample_params.sample_steps}  cfg ${payload.sample_params.guidance.txt_cfg}  ${payload.sample_params.sample_method}/${payload.sample_params.scheduler}  shift ${payload.sample_params.flow_shift ?? "-"}  eta ${payload.sample_params.eta}`,
+      `耗时 ${secs}s`
+    ].join("\n");
+    log(`完成，${secs}s`, "o");
+  }catch(e){
+    log("异常：" + (e && e.message || e), "e");
+    $("prog").style.width = "0";
+  }finally{
+    busy = false; $("btnGen").disabled = false;
+  }
+}
+
+/* ============ 输出：下载 / 图库存图 / 写索引 ============ */
+function b64ToBlob(b64){ const bin = atob(b64); const u = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i); return new Blob([u], {type:"image/png"}); }
+
+function download(){
+  if(!last) return;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(b64ToBlob(last.b64));
+  a.download = last.name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+  log("已下载 " + last.name);
+}
+
+let dirHandle = null;
+async function saveToLib(){
+  if(!last) return;
+  try{
+    if(!dirHandle){
+      dirHandle = await window.showDirectoryPicker({ id:"locmodel_lib", mode:"readwrite" });
+      log("已授权图库目录：" + dirHandle.name);
+    }
+    const st = await dirHandle.queryPermission({mode:"readwrite"});
+    if(st !== "granted"){
+      const req = await dirHandle.requestPermission({mode:"readwrite"});
+      if(req !== "granted"){ log("图库目录权限被拒绝", "e"); return; }
+    }
+    const fh = await dirHandle.getFileHandle(last.name, { create:true });
+    const w = await fh.createWritable();
+    await w.write(b64ToBlob(last.b64));
+    await w.close();
+    log(`图片已写入 ${dirHandle.name}\\${last.name}`, "o");
+  }catch(e){ log("写入图库失败：" + (e && e.message || e), "e"); }
+}
+
+let idxHandle = null;
+async function writeIndex(){
+  if(!last) return;
+  try{
+    if(!idxHandle){
+      const [fh] = await window.showOpenFilePicker({
+        id:"images_json",
+        types:[{description:"images.json", accept:{"application/json":[".json"]}}],
+        multiple:false
+      });
+      idxHandle = fh;
+      log("已选中索引文件：" + idxHandle.name);
+    }
+    const file = await idxHandle.getFile();
+    const raw = await file.text();
+    let arr;
+    try{ arr = JSON.parse(raw); }catch(e){ log("索引文件不是合法 JSON，已中止（不做覆盖）", "e"); return; }
+    if(!Array.isArray(arr)){ log("索引顶层不是数组，已中止（不做覆盖）", "e"); return; }
+    const before = arr.length;
+    const p = last.payload;
+    arr.push({
+      path: last.name,
+      prompt: p.prompt,
+      negative_prompt: p.negative_prompt,
+      model: `qwen_image_2.1-${last.model}`,
+      width: p.width, height: p.height,
+      steps: p.sample_params.sample_steps,
+      cfg_scale: p.sample_params.guidance.txt_cfg,
+      seed: p.seed,
+      time: Date.now(),
+      secs: last.secs,
+      kind: "image", frames: 1, fps: 0
+    });
+    const w = await idxHandle.createWritable();
+    await w.write(JSON.stringify(arr, null, 2));
+    await w.close();
+    log(`索引已追加 1 条（${before} → ${arr.length}）`, "o");
+    log("提示：path 使用文件名 " + last.name + "，请确认该图已放在图库目录内，否则 LocModel 缩略图会缺失", "w");
+  }catch(e){ log("写入索引失败：" + (e && e.message || e), "e"); }
+}
+
+function copyJson(){
+  if(!last) return;
+  const txt = JSON.stringify(last.payload, null, 2);
+  navigator.clipboard.writeText(txt).then(()=>log("参数 JSON 已复制"), ()=>log("复制失败，请手动选取", "e"));
+}
+
+/* ============ 预设与状态 ============ */
+function applyTier(t){
+  tier = t;
+  document.querySelectorAll("#tier button").forEach(b=>b.classList.toggle("sel", b.dataset.t === t));
+  const c = CAL.tiers[t];
+  $("cfg").value = c.cfg;
+  $("steps").value = CAL.common.steps;
+  $("sampler").value = CAL.common.sampler;
+  $("sched").value = CAL.common.sched;
+  $("shift").value = CAL.common.shift;
+  $("dg").value = CAL.common.dg;
+  $("eta").value = CAL.common.eta;
+  $("neg").value = c.extraNeg ? `${CAL.baseNeg}，${c.extraNeg}` : CAL.baseNeg;
+  log(`已套用 ${t} 校准预设（cfg ${c.cfg} / discrete shift ${CAL.common.shift} / ${CAL.common.steps} 步，预计 ${c.secs}）`);
+  persist();
+}
+
+function persist(){
+  const st = {
+    port: BASE ? +BASE.split(":").pop() : null, tier,
+    prompt: $("prompt").value, neg: $("neg").value,
+    w: $("w").value, h: $("h").value, steps: $("steps").value, cfg: $("cfg").value,
+    sampler: $("sampler").value, sched: $("sched").value, shift: $("shift").value,
+    dg: $("dg").value, eta: $("eta").value
+  };
+  localStorage.setItem(LS, JSON.stringify(st));
+}
+function restore(){
+  const s = JSON.parse(localStorage.getItem(LS) || "{}");
+  $("prompt").value = s.prompt || "现代建筑立面细节摄影，清水混凝土与玻璃幕墙交接，午后斜射阳光投下清晰锐利阴影，混凝土表面细密气孔与模板拼缝可见，真实材质质感，高锐度，35mm 镜头 f/8，建筑摄影";
+  if(s.w) $("w").value = s.w; if(s.h) $("h").value = s.h;
+  applyTier(s.tier && CAL.tiers[s.tier] ? s.tier : "Q3_K");
+  if(s.neg) $("neg").value = s.neg;
+  ["w","h","steps","cfg","sampler","sched","shift","dg","eta"].forEach(k=>{ if(s[k]!==undefined && s[k]!=="") $(k).value = s[k]; });
+  if(s.port){ BASE = `http://127.0.0.1:${s.port}`; setConn("wait", `上次端口 :${s.port}（未验证）`); }
+}
+
+/* ============ 绑定 ============ */
+document.querySelectorAll("#tier button").forEach(b=>b.onclick=()=>applyTier(b.dataset.t));
+$("btnScan").onclick = scan;
+$("btnGen").onclick = generate;
+$("btnDl").onclick = download;
+$("btnLib").onclick = saveToLib;
+$("btnIdx").onclick = writeIndex;
+$("btnCopy").onclick = copyJson;
+["prompt","neg","w","h","steps","cfg","sampler","sched","shift","dg","eta"].forEach(id=>{
+  $(id).addEventListener("change", persist);
+});
+
+restore();
+log("注入器 v0.1 就绪；参数依据 2026-11-10 三档量化校准实测（19 组）");
+log("校准结论：euler + discrete + flow_shift 3.0 + 28 步 + cfg 1.6 为三档共同最优点");
+if(BASE){ (async()=>{ const r = await probe(+BASE.split(":").pop()); if(r){ setConn("on", `已连接 :${r.port}`); log(`端口 ${r.port} 复连成功`, "o"); } else { setConn("", "未连接"); log("上次端口不可用，请点「探测端口」", "w"); } })(); }
+</script>
+</body>
+</html>

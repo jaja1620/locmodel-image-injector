@@ -1,0 +1,21 @@
+# OS / editor
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
+
+# Logs and scratch
+*.log
+temp/
+*.tmp
+
+# Python (experiment scripts, if any are added later)
+__pycache__/
+*.pyc
+.venv/
+
+# Generated media (keep repo light)
+*.safetensors
+*.gguf
+*.ckpt

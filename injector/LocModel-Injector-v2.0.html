@@ -1,0 +1,1439 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LocModel 注入器 v2.0 — Qwen-Image 2.1 文生图 / 图参照 / 改图</title>
+<style>
+  :root{
+    --bg:#0f1216; --panel:#171c22; --panel2:#1e242b; --line:#2a323b;
+    --fg:#dfe6ee; --dim:#8a97a6; --accent:#4aa8ff; --ok:#38c172; --warn:#f0a020; --err:#ef4b5a;
+    --mono:"Cascadia Mono",Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 "Microsoft YaHei UI","Segoe UI",sans-serif}
+  header{display:flex;align-items:center;gap:12px;padding:10px 18px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30}
+  header h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.5px}
+  header .ver{font-size:11px;color:var(--dim);border:1px solid var(--line);padding:1px 6px;border-radius:4px}
+  #conn{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim);flex-wrap:wrap}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--err);box-shadow:0 0 6px currentColor}
+  .dot.on{background:var(--ok)} .dot.wait{background:var(--warn)}
+  main{display:grid;grid-template-columns:400px 1fr;gap:14px;padding:14px 18px 40px;align-items:start}
+  @media(max-width:1080px){main{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-bottom:12px;overflow:hidden}
+  .card h2{font-size:12px;font-weight:600;color:var(--dim);margin:0;padding:9px 12px;border-bottom:1px solid var(--line);
+    letter-spacing:1px;text-transform:uppercase;display:flex;align-items:center;gap:8px}
+  .card h2 .r{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:400;font-size:11px}
+  .card .body{padding:12px}
+  label{display:block;font-size:12px;color:var(--dim);margin:0 0 4px}
+  input,select,textarea{width:100%;background:var(--panel2);color:var(--fg);border:1px solid var(--line);
+    border-radius:5px;padding:6px 8px;font:inherit;font-size:13px;outline:none}
+  textarea{resize:vertical;font-size:12.5px;line-height:1.5}
+  input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+  input:disabled,select:disabled{opacity:.5}
+  .row{display:grid;gap:10px;margin-bottom:10px}
+  .r2{grid-template-columns:1fr 1fr}.r3{grid-template-columns:1fr 1fr 1fr}.r4{grid-template-columns:1fr 1fr 1fr 1fr}
+  button{background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:5px;
+    padding:7px 12px;font:inherit;font-size:13px;cursor:pointer;transition:.15s}
+  button:hover:not(:disabled){border-color:var(--accent);color:#fff}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#07131f;font-weight:600}
+  button.primary:hover:not(:disabled){filter:brightness(1.1)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button+button{margin-left:8px}
+  .modes{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .modes button{padding:9px 4px;text-align:center;line-height:1.3}
+  .modes button b{display:block;font-size:13px}
+  .modes button span{font-size:10.5px;color:var(--dim)}
+  .modes button.sel{border-color:var(--accent);background:#12314a;color:#fff}
+  .modes button.sel span{color:#9dc9ef}
+  .tier{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .tier button{padding:9px 4px;text-align:center;line-height:1.3}
+  .tier button b{display:block;font-size:13px}
+  .tier button span{font-size:10.5px;color:var(--dim)}
+  .tier button.sel{border-color:var(--accent);background:#12314a;color:#fff}
+  .tier button.sel span{color:#9dc9ef}
+  #stageWrap{position:relative;min-height:380px;display:flex;align-items:center;justify-content:center;
+    background:#0b0e11;border:1px dashed var(--line);border-radius:8px;overflow:auto;padding:8px}
+  #cv{max-width:100%;max-height:70vh;display:none;touch-action:none;cursor:crosshair}
+  #stageHint{color:var(--dim);font-size:13px;text-align:center;padding:24px;line-height:1.8}
+  .tbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+  .tbar button{padding:5px 9px;font-size:12px}
+  .tbar button.sel{border-color:var(--accent);background:#12314a;color:#fff}
+  .tbar input[type=range]{width:96px;padding:0;background:none;border:none}
+  .pill{font-size:11.5px;color:var(--dim);font-family:var(--mono);border:1px solid var(--line);
+    border-radius:4px;padding:2px 7px;white-space:nowrap}
+  .pill b{color:var(--fg);font-weight:600}
+  .pill.warn{border-color:var(--warn);color:var(--warn)}
+  #refStrip{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+  .refItem{position:relative;border:1px solid var(--line);border-radius:6px;overflow:hidden;cursor:pointer;background:#0b0e11}
+  .refItem img{display:block;height:66px;width:auto}
+  .refItem .idx{position:absolute;left:0;top:0;background:rgba(0,0,0,.65);color:#fff;font-size:10px;
+    font-family:var(--mono);padding:1px 4px}
+  .refItem .del{position:absolute;right:0;top:0;background:rgba(0,0,0,.65);color:#ff8b96;border:none;
+    font-size:11px;padding:1px 5px;cursor:pointer;border-radius:0}
+  .refItem.sel{outline:2px solid var(--accent)}
+  .refItem .mk{position:absolute;right:2px;bottom:2px;background:rgba(200,40,40,.85);color:#fff;
+    font-size:9.5px;font-family:var(--mono);padding:0 3px;border-radius:2px}
+  #assistOut{font-size:12px;color:var(--dim);line-height:1.65;white-space:pre-wrap;
+    background:#0b0e11;border:1px solid var(--line);border-radius:6px;padding:8px;margin-top:8px;
+    max-height:150px;overflow:auto;display:none}
+  #assistOut b{color:var(--fg)}
+  .candBar{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .candBar button{font-size:11.5px;padding:4px 8px}
+  #log{font-family:var(--mono);font-size:11.5px;line-height:1.65;color:#9aa7b5;max-height:190px;overflow:auto;
+    background:#0b0e11;border:1px solid var(--line);border-radius:6px;padding:8px}
+  #log .e{color:var(--err)} #log .o{color:var(--ok)} #log .w{color:var(--warn)}
+  .kv{font-family:var(--mono);font-size:11.5px;color:var(--dim);white-space:pre-wrap;word-break:break-all}
+  .bar{height:3px;background:var(--panel2);border-radius:2px;overflow:hidden;margin-bottom:8px}
+  .bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .3s}
+  .note{font-size:11.5px;color:var(--dim);line-height:1.6;margin-top:8px;padding-left:9px;border-left:2px solid var(--line)}
+  .hidden{display:none !important}
+</style>
+</head>
+<body>
+<header>
+  <h1>LocModel 注入器</h1><span class="ver">v2.0</span>
+  <div id="conn"><span class="dot" id="dot"></span><span id="connTxt">未连接</span>
+    <span class="pill" id="modelPill">模型 —</span>
+    <button id="btnScan" style="padding:4px 9px;font-size:12px">探测端口</button></div>
+</header>
+
+<main>
+  <!-- ================= 左列参数 ================= -->
+  <div>
+    <div class="card">
+      <h2>生成模式</h2>
+      <div class="body">
+        <div class="modes" id="modes">
+          <button data-m="t2i"><b>文生图</b><span>纯提示词</span></button>
+          <button data-m="ref"><b>图参照</b><span>1~4 张参考图</span></button>
+          <button data-m="edit"><b>局部改图</b><span>底图 + 遮罩</span></button>
+        </div>
+        <div class="note" id="modeNote">文生图：直接按提示词生成。</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>量化档位 · 校准预设</h2>
+      <div class="body">
+        <div class="tier" id="tier">
+          <button data-t="Q3_K"><b>Q3_K</b><span>3.05 GB · ~55s</span></button>
+          <button data-t="Q4_K"><b>Q4_K</b><span>3.91 GB · ~95s</span></button>
+          <button data-t="Q6_K"><b>Q6_K</b><span>5.59 GB · ~175s</span></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>提示词</h2>
+      <div class="body">
+        <div class="row"><div>
+          <label>提示词</label>
+          <textarea id="prompt" rows="4"></textarea>
+        </div></div>
+        <div class="row" style="margin-bottom:0"><div>
+          <label>负面提示词</label>
+          <textarea id="neg" rows="3"></textarea>
+        </div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>采样参数</h2>
+      <div class="body">
+        <div class="row r2">
+          <div><label>宽（32 对齐）</label><input id="w" type="number" step="32" value="1344"></div>
+          <div><label>高（32 对齐）</label><input id="h" type="number" step="32" value="768"></div>
+        </div>
+        <div class="row r3">
+          <div><label>步数</label><input id="steps" type="number" value="28" min="1" max="100"></div>
+          <div><label>CFG</label><input id="cfg" type="number" step="0.05" value="1.6"></div>
+          <div><label>eta</label><input id="eta" type="number" step="0.1" value="0"></div>
+        </div>
+        <div class="row r2">
+          <div><label>采样器</label>
+            <select id="sampler">
+              <option value="euler">euler</option><option value="euler_a">euler_a</option>
+              <option value="heun">heun</option><option value="dpm2">dpm2</option>
+              <option value="dpm++2s_a">dpm++2s_a</option><option value="dpm++2m">dpm++2m</option>
+              <option value="dpm++2mv2">dpm++2mv2</option><option value="ipndm">ipndm</option>
+              <option value="res_multistep">res_multistep</option><option value="res_2s">res_2s</option>
+              <option value="er_sde">er_sde</option><option value="lcm">lcm</option>
+              <option value="ddim_trailing">ddim_trailing</option><option value="tcd">tcd</option>
+              <option value="euler_cfg_pp">euler_cfg_pp</option><option value="dpm++2m_sde">dpm++2m_sde</option>
+              <option value="lms">lms</option>
+            </select></div>
+          <div><label>调度器</label>
+            <select id="sched">
+              <option value="discrete">discrete</option><option value="normal">normal</option>
+              <option value="karras">karras</option><option value="exponential">exponential</option>
+              <option value="ays">ays</option><option value="gits">gits</option>
+              <option value="sgm_uniform">sgm_uniform</option><option value="simple">simple</option>
+              <option value="smoothstep">smoothstep</option><option value="kl_optimal">kl_optimal</option>
+              <option value="bong_tangent">bong_tangent</option><option value="logit_normal">logit_normal</option>
+              <option value="flux">flux</option><option value="flux2">flux2</option>
+              <option value="beta">beta</option><option value="default">default(auto)</option>
+            </select></div>
+        </div>
+        <div class="row r3" style="margin-bottom:0">
+          <div><label>flow_shift</label><input id="shift" type="number" step="0.1" value="3"></div>
+          <div><label>seed（空=随机）</label><input id="seed" type="number" placeholder="随机"></div>
+          <div><label>distilled_g</label><input id="dg" type="number" step="0.1" value="3.5"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card hidden" id="cardEdit">
+      <h2>改图参数</h2>
+      <div class="body">
+        <div class="row r3">
+          <div><label>strength</label><input id="strength" type="number" step="0.05" min="0.05" max="1" value="0.85"></div>
+          <div><label>羽化 px</label><input id="feather" type="number" step="1" min="0" max="64" value="0"></div>
+          <div><label>批量</label><input id="batch" type="number" step="1" min="1" max="8" value="1"></div>
+        </div>
+        <div class="row" style="margin-bottom:0">
+          <div>
+            <label style="display:flex;align-items:center;gap:6px;color:var(--fg);font-size:12.5px">
+              <input type="checkbox" id="protect" checked style="width:auto;margin:0">
+              掩码外像素保护（推荐）
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;color:var(--fg);font-size:12.5px;margin-top:6px">
+              <input type="checkbox" id="burn" checked style="width:auto;margin:0">
+              图参照模式烧录标注（把遮罩画进参考图）
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;color:var(--fg);font-size:12.5px;margin-top:6px">
+              <input type="checkbox" id="autoresize" checked style="width:auto;margin:0">
+              参考图自动缩放到目标尺寸
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>执行</h2>
+      <div class="body">
+        <div class="bar"><i id="prog"></i></div>
+        <button class="primary" id="btnGen" style="width:100%">生成</button>
+        <div class="note" id="costNote">改图/图参照在 CPU 后端下约 4~10 分钟一张，请耐心等待。</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= 右列工作区 ================= -->
+  <div>
+    <div class="card">
+      <h2>图像工作区 <span class="r" id="paintLbl"></span></h2>
+      <div class="body">
+        <div class="tbar" id="inputRow">
+          <button id="btnLoadBase">载入底图</button>
+          <button id="btnLoadRef">添加参考图</button>
+          <button id="btnPaste">粘贴剪贴板</button>
+          <button id="btnClearImg">清空图像</button>
+          <input type="file" id="fileBase" accept="image/*" class="hidden">
+          <input type="file" id="fileRef" accept="image/*" multiple class="hidden">
+        </div>
+
+        <div id="refStrip"></div>
+
+        <div class="tbar" id="toolbar">
+          <button data-tool="brush" class="sel">画笔</button>
+          <button data-tool="eraser">橡皮</button>
+          <button data-tool="rect">矩形</button>
+          <button data-tool="ellipse">椭圆</button>
+          <button data-tool="lasso">套索</button>
+          <button id="btnAll">全选</button>
+          <button id="btnInv">反选</button>
+          <button id="btnClearMask">清空遮罩</button>
+          <span style="font-size:12px;color:var(--dim)">笔刷</span>
+          <input type="range" id="brush" min="4" max="200" step="2" value="48">
+          <span class="pill" id="brushPill">48 px</span>
+          <span class="pill" id="covPill">覆盖 <b>0%</b></span>
+          <span class="pill" id="sizePill">—</span>
+        </div>
+
+        <div id="stageWrap">
+          <canvas id="cv"></canvas>
+          <div id="stageHint">文生图模式无需图像<br><span style="font-size:11.5px">切到「局部改图」载入底图并涂抹遮罩，或「图参照」添加 1~4 张参考图</span></div>
+        </div>
+
+        <div class="tbar" style="margin-top:10px">
+          <button data-view="paint" class="sel">编辑视图</button>
+          <button data-view="result">结果</button>
+          <button data-view="compare">三联对比</button>
+        </div>
+
+        <div class="card" style="margin:10px 0 0;border-color:var(--line)">
+          <h2>遮罩识别 <span class="r">A 自检 / B 主色 / C 候选框</span></h2>
+          <div class="body">
+            <div class="tbar">
+              <button id="btnCheck">A 遮罩自检</button>
+              <button id="btnStats">B 选区主色</button>
+              <button id="btnSuggest">C 候选框建议</button>
+            </div>
+            <div id="assistOut"></div>
+            <div class="candBar" id="candBar"></div>
+          </div>
+        </div>
+
+        <div class="tbar" style="margin-top:10px">
+          <button id="btnDl" disabled>下载结果</button>
+          <button id="btnDlRaw" disabled>下载引擎原始</button>
+          <button id="btnDlMask" disabled>下载遮罩</button>
+          <button id="btnLib" disabled>保存到图库目录</button>
+          <button id="btnIdx" disabled>写入 images.json</button>
+          <button id="btnCopy" disabled>复制请求 JSON</button>
+        </div>
+        <div class="note">
+          写入 images.json 前请先退出 LocModel 界面：GUI 运行中在内存持有索引副本，退出时回写会覆盖追加内容。追加字段（mode/strength/mask_coverage/recomposed）不改动原生字段。
+        </div>
+        <div class="kv" id="meta" style="margin-top:10px"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>运行日志</h2>
+      <div class="body"><div id="log"></div></div>
+    </div>
+  </div>
+</main>
+
+<script>
+/* ==================================================================
+   常量
+   ================================================================== */
+const CAL = {
+  common: { sampler:"euler", sched:"discrete", shift:3.0, steps:28, cfg:1.6, dg:3.5, eta:0 },
+  baseNeg: "模糊，水彩纸纹，灰雾，低对比，过曝，噪点，涂抹感，失真",
+  tiers: {
+    Q3_K: { cfg:1.6, extraNeg:"颗粒、噪点、脏色、斑驳", secs:"~55s" },
+    Q4_K: { cfg:1.6, extraNeg:"模糊、涂抹、柔焦、细节缺失", secs:"~95s" },
+    Q6_K: { cfg:1.6, extraNeg:"", secs:"~175s" }
+  },
+  // 改图专用预设（init+mask）：步数略降，strength 0.85 起步
+  edit: { steps:24, strength:0.85 }
+};
+const PORTS = [8790, 8686, 8899, 8080, 7860, 1234, 9090, 5000];
+const LS = "locmodel_injector_v20";
+const POLL_MAX = 1800;   // 秒，改图/参考图通道较慢
+const DEF_PROMPT = "现代建筑立面细节摄影，清水混凝土与玻璃幕墙交接，午后斜射阳光投下清晰锐利阴影，混凝土表面细密气孔与模板拼缝可见，真实材质质感，高锐度，35mm 镜头 f/8，建筑摄影";
+
+/* ==================================================================
+   工具函数
+   ================================================================== */
+const $ = id => document.getElementById(id);
+const log = (m, c="") => {
+  const d = $("log"); const t = new Date().toLocaleTimeString();
+  d.insertAdjacentHTML("beforeend", '<div class="' + c + '">[' + t + '] ' + esc(m) + '</div>');
+  d.scrollTop = d.scrollHeight;
+};
+const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const setConn = (s, txt) => { $("dot").className = "dot " + s; $("connTxt").textContent = txt; };
+const align32 = v => Math.max(32, Math.round((+v || 32) / 32) * 32);
+const mkCanvas = (w, h) => { const c = document.createElement("canvas"); c.width = Math.max(1, w|0); c.height = Math.max(1, h|0); return c; };
+
+/* ==================================================================
+   全局状态
+   ================================================================== */
+const S = {
+  mode: "t2i",
+  tier: "Q4_K",
+  tool: "brush",
+  brush: 48,
+  view: "paint",
+  base: null,            // {canvas, mask, name}
+  refs: [],              // [{canvas, mask, name}]
+  activeRef: -1,         // 图参照模式下正在标注的参考图序号
+  paint: null,           // 当前绘制目标（base 或 refs[i]）
+  preview: null,         // {type,a,b,pts}
+  drag: null,
+  overlay: null,         // 红色遮罩缓存
+  overlayKey: "",
+  result: null,          // {b64, rawB64, secs, payload, name, composed}
+  busy: false
+};
+let BASE = null;
+
+/* ==================================================================
+   端口自发现
+   ================================================================== */
+async function probe(port){
+  const ac = new AbortController();
+  const to = setTimeout(() => ac.abort(), 900);
+  try{
+    const r = await fetch("http://127.0.0.1:" + port + "/sdcpp/v1/capabilities", {signal: ac.signal});
+    if(!r.ok) return null;
+    return { port, caps: await r.json() };
+  }catch(e){ return null; } finally { clearTimeout(to); }
+}
+async function scan(){
+  setConn("wait", "探测中…"); $("btnScan").disabled = true;
+  log("并发探测端口：" + PORTS.join(", "));
+  const hit = (await Promise.all(PORTS.map(probe))).filter(Boolean);
+  $("btnScan").disabled = false;
+  if(!hit.length){
+    setConn("", "未找到引擎");
+    log("未发现监听中的 sd-server，请先启动 LocModel 或独立实例", "e");
+    return null;
+  }
+  hit.sort((a, b) => PORTS.indexOf(a.port) - PORTS.indexOf(b.port));
+  BASE = "http://127.0.0.1:" + hit[0].port;
+  setConn("on", "已连接 :" + hit[0].port);
+  log("命中 " + hit.length + " 个端口：" + hit.map(h => h.port).join(", ") + "，锁定 " + hit[0].port, "o");
+  const caps = hit[0].caps || {};
+  const m = caps.model || {};
+  $("modelPill").textContent = "模型 " + (m.name || "未知");
+  const f = caps.features || {};
+  log("引擎特性：init_image=" + !!f.init_image + " mask_image=" + !!f.mask_image + " ref_images=" + !!f.ref_images);
+  const saved = JSON.parse(localStorage.getItem(LS) || "{}");
+  saved.port = hit[0].port; localStorage.setItem(LS, JSON.stringify(saved));
+  return hit[0];
+}
+
+/* ==================================================================
+   图像载入 / 对齐
+   ================================================================== */
+function fitTo32(img){
+  const w = align32(img.naturalWidth || img.width), h = align32(img.naturalHeight || img.height);
+  const c = mkCanvas(w, h), x = c.getContext("2d");
+  x.fillStyle = "#000"; x.fillRect(0, 0, w, h);
+  x.drawImage(img, 0, 0, w, h);
+  return c;
+}
+function newMaskOf(w, h){
+  // 遮罩用 alpha 编码强度：透明=保留、不透明白=重绘。
+  // 这样叠加显示与烧录可直接用 source-in，避免"黑底不透明"导致整图被染红。
+  const m = mkCanvas(w, h), x = m.getContext("2d");
+  x.clearRect(0, 0, w, h);
+  return m;
+}
+function readFileAsImage(file){
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error("图片解码失败")); im.src = fr.result; };
+    fr.onerror = () => rej(new Error("读取失败"));
+    fr.readAsDataURL(file);
+  });
+}
+async function loadBaseFile(file){
+  try{
+    const im = await readFileAsImage(file);
+    const c = fitTo32(im);
+    S.base = { canvas: c, mask: newMaskOf(c.width, c.height), name: file.name || "base.png" };
+    if(S.mode !== "edit") setMode("edit");
+    else attachPaint();
+    $("w").value = c.width; $("h").value = c.height;
+    updateSizePill(); invalidateOverlay(); render(); refreshMarks();
+    log("底图已载入 " + c.width + "×" + c.height + (c.width !== im.naturalWidth ? "（已对齐到 32 的倍数）" : ""));
+    persist();
+  }catch(e){ log("底图载入失败：" + e.message, "e"); }
+}
+async function loadRefFile(file){
+  if(S.refs.length >= 4){ log("参考图上限 4 张", "w"); return; }
+  try{
+    const im = await readFileAsImage(file);
+    const c = fitTo32(im);
+    S.refs.push({ canvas: c, mask: newMaskOf(c.width, c.height), name: file.name || ("ref" + S.refs.length) });
+    if(S.mode !== "ref") setMode("ref");
+    else { if(S.activeRef < 0) S.activeRef = 0; attachPaint(); }
+    updateRefStrip(); invalidateOverlay(); render();
+    log("参考图已添加（" + S.refs.length + "/4）" + c.width + "×" + c.height);
+    persist();
+  }catch(e){ log("参考图载入失败：" + e.message, "e"); }
+}
+function attachPaint(){
+  if(S.mode === "edit"){ S.paint = S.base; }
+  else if(S.mode === "ref"){ S.paint = (S.activeRef >= 0 && S.refs[S.activeRef]) ? S.refs[S.activeRef] : null; }
+  else { S.paint = null; }
+  $("paintLbl").textContent = S.paint ? ("绘制目标：" + (S.mode === "edit" ? "底图" : ("参考图 #" + (S.activeRef + 1)))) : "";
+  invalidateOverlay(); updateSizePill();
+}
+
+/* ==================================================================
+   模式切换
+   ================================================================== */
+function setMode(m){
+  const prev = S.mode;
+  S.mode = m;
+  // 模式切换时同步步数默认值（改图 24 步 / 文生图与图参照 28 步）
+  if(prev !== m) $("steps").value = (m === "edit") ? CAL.edit.steps : CAL.common.steps;
+  document.querySelectorAll("#modes button").forEach(b => b.classList.toggle("sel", b.dataset.m === m));
+  $("cardEdit").classList.toggle("hidden", m === "t2i");
+  $("btnLoadBase").classList.toggle("hidden", m === "ref");
+  $("btnLoadRef").classList.toggle("hidden", m === "t2i");
+  $("btnDlMask").disabled = true;
+  const notes = {
+    t2i: "文生图：直接按提示词生成，尺寸取上方宽高。",
+    ref: "图参照：添加 1~4 张参考图，支持多角度/多材质；勾选「烧录标注」后遮罩会画进参考图副本，用提示词指令改标注区。参考图与底图不可同时使用（引擎限制）。",
+    edit: "局部改图：载入底图后在画布涂抹遮罩（白=重绘、黑=保留），走 init_image + mask_image + strength 链路，掩码外强制保护。"
+  };
+  $("modeNote").textContent = notes[m];
+  $("costNote").textContent = (m === "t2i")
+    ? "文生图在 CPU 后端下约 1~3 分钟一张。"
+    : "改图/图参照在 CPU 后端下约 4~10 分钟一张，轮询上限 30 分钟，请耐心等待。";
+  if(m === "edit" && S.base){ $("w").value = S.base.canvas.width; $("h").value = S.base.canvas.height; }
+  if(m === "ref" && S.activeRef < 0 && S.refs.length) S.activeRef = 0;
+  attachPaint(); render(); updateRefStrip(); persist();
+}
+
+/* ==================================================================
+   参考图缩略条
+   ================================================================== */
+function updateRefStrip(){
+  const box = $("refStrip");
+  box.innerHTML = "";
+  if(!S.refs.length){ box.classList.add("hidden"); return; }
+  box.classList.remove("hidden");
+  S.refs.forEach((r, i) => {
+    const d = document.createElement("div");
+    d.className = "refItem" + (S.mode === "ref" && i === S.activeRef ? " sel" : "");
+    const im = document.createElement("img");
+    im.src = r.canvas.toDataURL("image/jpeg", 0.6);
+    const idx = document.createElement("span"); idx.className = "idx"; idx.textContent = "#" + (i + 1);
+    const del = document.createElement("button"); del.className = "del"; del.textContent = "×";
+    del.onclick = (ev) => {
+      ev.stopPropagation();
+      S.refs.splice(i, 1);
+      if(S.activeRef >= S.refs.length) S.activeRef = S.refs.length - 1;
+      attachPaint(); updateRefStrip(); render();
+    };
+    d.appendChild(im); d.appendChild(idx); d.appendChild(del);
+    const mk = maskCoverage(r.mask);
+    if(mk > 0){
+      const b = document.createElement("span"); b.className = "mk"; b.textContent = mk.toFixed(1) + "%";
+      d.appendChild(b);
+    }
+    d.onclick = () => {
+      if(S.mode !== "ref") setMode("ref");
+      S.activeRef = i; attachPaint(); updateRefStrip(); render();
+    };
+    box.appendChild(d);
+  });
+}
+function refreshMarks(){ updateRefStrip(); }
+
+/* ==================================================================
+   遮罩：绘制 / 工具
+   ================================================================== */
+function invalidateOverlay(){ S.overlay = null; }
+function paintCtx(){ return S.paint.mask.getContext("2d"); }
+
+function pointerPos(ev){
+  const cv = $("cv"), r = cv.getBoundingClientRect();
+  return {
+    x: (ev.clientX - r.left) / r.width * cv.width,
+    y: (ev.clientY - r.top) / r.height * cv.height
+  };
+}
+function strokeSeg(a, b){
+  if(!S.paint) return;
+  const c = paintCtx();
+  c.save();
+  c.globalCompositeOperation = (S.tool === "eraser") ? "destination-out" : "source-over";
+  c.strokeStyle = "#fff"; c.lineWidth = S.brush; c.lineCap = "round"; c.lineJoin = "round";
+  c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.stroke();
+  c.restore();
+  invalidateOverlay();
+}
+function commitShape(){
+  const p = S.preview;
+  if(!p || !S.paint) { S.preview = null; return; }
+  const c = paintCtx();
+  c.save();
+  c.fillStyle = "#fff"; c.strokeStyle = "#fff"; c.lineWidth = S.brush; c.lineJoin = "round";
+  c.beginPath();
+  if(p.type === "rect"){
+    c.rect(Math.min(p.a.x, p.b.x), Math.min(p.a.y, p.b.y), Math.abs(p.b.x - p.a.x), Math.abs(p.b.y - p.a.y));
+  }else if(p.type === "ellipse"){
+    const cx = (p.a.x + p.b.x) / 2, cy = (p.a.y + p.b.y) / 2;
+    c.ellipse(cx, cy, Math.abs(p.b.x - p.a.x) / 2, Math.abs(p.b.y - p.a.y) / 2, 0, 0, Math.PI * 2);
+  }else if(p.type === "lasso" && p.pts && p.pts.length > 2){
+    c.moveTo(p.pts[0].x, p.pts[0].y);
+    for(let i = 1; i < p.pts.length; i++) c.lineTo(p.pts[i].x, p.pts[i].y);
+    c.closePath();
+  }
+  c.fill();
+  c.restore();
+  S.preview = null;
+  invalidateOverlay();
+  scheduleCoverage();
+}
+
+let covTimer = null;
+function scheduleCoverage(){
+  clearTimeout(covTimer);
+  covTimer = setTimeout(() => {
+    const pct = S.paint ? maskCoverage(S.paint.mask) : 0;
+    $("covPill").innerHTML = "覆盖 <b>" + pct.toFixed(1) + "%</b>";
+    $("covPill").classList.toggle("warn", pct > 85);
+    cipherHint(pct);
+    if(S.mode === "ref") updateRefStrip();
+  }, 120);
+}
+function cipherHint(pct){
+  if(!S.paint) return;
+  if(pct === 0){ S.hintText = ""; return; }
+  if(pct < 0.2) S.hintText = "选区不足 0.2%，模型基本无响应，建议扩大";
+  else if(pct > 85) S.hintText = "选区超过 85%，等同于整图重绘，建议改用图参照模式";
+  else S.hintText = "";
+}
+
+/* 覆盖率：降采样统计 */
+function maskCoverage(mask){
+  if(!mask) return 0;
+  const step = Math.max(1, Math.floor(Math.min(mask.width, mask.height) / 240));
+  const c = mkCanvas(Math.ceil(mask.width / step), Math.ceil(mask.height / step));
+  const x = c.getContext("2d");
+  x.drawImage(mask, 0, 0, c.width, c.height);
+  const d = x.getImageData(0, 0, c.width, c.height).data;
+  let n = 0;
+  for(let i = 0; i < d.length; i += 4) if(d[i] > 127) n++;
+  return n / (c.width * c.height) * 100;
+}
+
+/* ==================================================================
+   渲染
+   ================================================================== */
+function buildOverlay(){
+  if(!S.paint) return null;
+  if(S.overlay) return S.overlay;
+  const m = S.paint.mask;
+  const o = mkCanvas(m.width, m.height), c = o.getContext("2d");
+  c.drawImage(m, 0, 0);
+  c.globalCompositeOperation = "source-in";
+  c.fillStyle = "rgba(255,64,64,.45)";
+  c.fillRect(0, 0, o.width, o.height);
+  S.overlay = o;
+  return o;
+}
+
+function render(){
+  const cv = $("cv"), ctx = cv.getContext("2d");
+  const hint = $("stageHint");
+  cv.style.maxWidth = (S.view === "compare") ? "none" : "100%";
+
+  if(S.view === "result" && S.result){
+    const im = new Image();
+    im.onload = () => {
+      cv.width = im.width; cv.height = im.height;
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      ctx.drawImage(im, 0, 0);
+      cv.style.display = "block"; hint.style.display = "none";
+    };
+    im.src = "data:image/png;base64," + S.result.b64;
+    return;
+  }
+
+  if(!S.paint){
+    cv.style.display = "none"; hint.style.display = "block";
+    return;
+  }
+
+  const src = S.paint.canvas;
+  cv.width = src.width; cv.height = src.height;
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.drawImage(src, 0, 0);
+
+  if(S.view === "compare" && S.result){
+    drawCompare(ctx, cv);
+    cv.style.display = "block"; hint.style.display = "none";
+    return;
+  }
+
+  const ov = buildOverlay();
+  if(ov) ctx.drawImage(ov, 0, 0);
+
+  // 预览形状
+  if(S.preview){
+    const p = S.preview;
+    ctx.save();
+    ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.fillStyle = "rgba(255,255,255,.35)";
+    ctx.lineWidth = Math.max(1, cv.width / 700); ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    if(p.type === "rect"){
+      ctx.rect(Math.min(p.a.x, p.b.x), Math.min(p.a.y, p.b.y), Math.abs(p.b.x - p.a.x), Math.abs(p.b.y - p.a.y));
+    }else if(p.type === "ellipse"){
+      ctx.ellipse((p.a.x + p.b.x) / 2, (p.a.y + p.b.y) / 2, Math.abs(p.b.x - p.a.x) / 2, Math.abs(p.b.y - p.a.y) / 2, 0, 0, Math.PI * 2);
+    }else if(p.type === "lasso" && p.pts){
+      if(p.pts.length){ ctx.moveTo(p.pts[0].x, p.pts[0].y); p.pts.slice(1).forEach(q => ctx.lineTo(q.x, q.y)); }
+    }
+    ctx.stroke();
+    if(p.type !== "lasso") ctx.fill();
+    ctx.restore();
+  }
+
+  cv.style.display = "block"; hint.style.display = "none";
+}
+
+function drawCompare(ctx, cv){
+  const W = S.paint.canvas.width, H = S.paint.canvas.height;
+  const gap = 12;
+  cv.width = W * 3 + gap * 2; cv.height = H;
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.fillStyle = "#0b0e11"; ctx.fillRect(0, 0, cv.width, cv.height);
+  // 1 底图
+  ctx.drawImage(S.paint.canvas, 0, 0);
+  // 2 遮罩
+  ctx.fillStyle = "#111"; ctx.fillRect(W + gap, 0, W, H);
+  ctx.drawImage(S.paint.mask, W + gap, 0);
+  // 3 结果（异步）
+  const im = new Image();
+  im.onload = () => {
+    ctx.drawImage(im, (W + gap) * 2, 0, W, H);
+    ctx.fillStyle = "rgba(0,0,0,.65)";
+    [["底图", 6], ["遮罩", W + gap + 6], ["结果", (W + gap) * 2 + 6]].forEach(([t, x]) => {
+      ctx.fillRect(x - 2, 4, 42, 20);
+      ctx.fillStyle = "#dfe6ee"; ctx.font = "12px monospace";
+      ctx.fillText(t, x + 2, 18);
+      ctx.fillStyle = "rgba(0,0,0,.65)";
+    });
+  };
+  im.src = "data:image/png;base64," + S.result.b64;
+}
+
+/* ==================================================================
+   画布事件
+   ================================================================== */
+function bindCanvas(){
+  const cv = $("cv");
+  cv.addEventListener("pointerdown", ev => {
+    if(!S.paint) return;
+    cv.setPointerCapture(ev.pointerId);
+    const p = pointerPos(ev);
+    if(S.tool === "brush" || S.tool === "eraser"){
+      S.drag = { last: p };
+      strokeSeg({x: p.x - 0.01, y: p.y - 0.01}, p);
+      render();
+    }else if(S.tool === "lasso"){
+      S.preview = { type: "lasso", a: p, b: p, pts: [p] };
+      S.drag = { last: p };
+    }else{
+      S.preview = { type: S.tool, a: p, b: p };
+      S.drag = { last: p };
+    }
+  });
+  cv.addEventListener("pointermove", ev => {
+    if(!S.drag || !S.paint) return;
+    const p = pointerPos(ev);
+    if(S.tool === "brush" || S.tool === "eraser"){
+      strokeSeg(S.drag.last, p);
+      S.drag.last = p;
+    }else if(S.tool === "lasso"){
+      if(!S.preview) return;
+      S.preview.b = p;
+      const l = S.preview.pts[S.preview.pts.length - 1];
+      if(Math.hypot(p.x - l.x, p.y - l.y) > 3) S.preview.pts.push(p);
+    }else{
+      if(!S.preview) return;
+      S.preview.b = p;
+    }
+    render();
+  });
+  const end = ev => {
+    if(!S.drag) return;
+    S.drag = null;
+    if(S.tool === "brush" || S.tool === "eraser"){ scheduleCoverage(); render(); return; }
+    commitShape(); render();
+  };
+  cv.addEventListener("pointerup", end);
+  cv.addEventListener("pointercancel", end);
+  cv.addEventListener("pointerleave", ev => { if(S.drag && ev.buttons === 0) end(ev); });
+}
+
+/* ==================================================================
+   识别 A / B / C
+   ================================================================== */
+function out(html){ const o = $("assistOut"); o.style.display = "block"; o.innerHTML = html; }
+
+/* A：遮罩自检 */
+function checkMask(){
+  if(!S.paint){ out("请先载入图像"); return; }
+  const mask = S.paint.mask, W = mask.width, H = mask.height;
+  const step = Math.max(1, Math.floor(Math.min(W, H) / 320));
+  const cw = Math.ceil(W / step), ch = Math.ceil(H / step);
+  const c = mkCanvas(cw, ch), x = c.getContext("2d");
+  x.drawImage(mask, 0, 0, cw, ch);
+  const d = x.getImageData(0, 0, cw, ch).data;
+  const bin = new Uint8Array(cw * ch);
+  let n = 0;
+  for(let i = 0, j = 0; i < d.length; i += 4, j++){ bin[j] = d[i] > 127 ? 1 : 0; if(bin[j]) n++; }
+  const cov = n / (cw * ch) * 100;
+
+  // 连通域（4 邻域）
+  const lab = new Int32Array(cw * ch).fill(-1);
+  const comps = [];
+  for(let j = 0; j < bin.length; j++){
+    if(!bin[j] || lab[j] >= 0) continue;
+    const stack = [j]; lab[j] = comps.length;
+    let cnt = 0, minx = 1e9, miny = 1e9, maxx = -1, maxy = -1, edge = 0;
+    while(stack.length){
+      const k = stack.pop(); cnt++;
+      const px = k % cw, py = (k / cw) | 0;
+      if(px < minx) minx = px; if(px > maxx) maxx = px;
+      if(py < miny) miny = py; if(py > maxy) maxy = py;
+      if(px <= 1 || py <= 1 || px >= cw - 2 || py >= ch - 2) edge++;
+      const nb = [k - 1, k + 1, k - cw, k + cw];
+      for(const q of nb){
+        if(q < 0 || q >= bin.length) continue;
+        if((q === k - 1 && px === 0) || (q === k + 1 && px === cw - 1)) continue;
+        if(bin[q] && lab[q] < 0){ lab[q] = comps.length; stack.push(q); }
+      }
+    }
+    comps.push({ cnt, minx: minx * step, miny: miny * step, maxx: maxx * step, maxy: maxy * step, edge, px: cnt / n });
+  }
+  comps.sort((a, b) => b.cnt - a.cnt);
+  const big = comps[0];
+
+  const warns = [];
+  if(n === 0) warns.push("遮罩为空：请先绘制选区（白=重绘）");
+  else if(cov < 0.2) warns.push("覆盖率 " + cov.toFixed(2) + "% 过小，模型基本无响应，建议扩大选区");
+  else if(cov > 85) warns.push("覆盖率 " + cov.toFixed(1) + "% 过大，等同整图重绘，建议改用图参照模式");
+  if(comps.length > 6) warns.push("连通区域 " + comps.length + " 个，碎片较多，建议合并为 1~3 块");
+  if(big && big.edge / big.cnt > 0.35) warns.push("最大区域大量贴边，改图边界易出现接缝，建议内缩几像素");
+  if(W % 32 || H % 32) warns.push("图像尺寸非 32 倍数（" + W + "×" + H + "），请重新载入以自动对齐");
+
+  let html = "<b>遮罩自检</b>\n";
+  html += "尺寸 " + W + "×" + H + "　覆盖率 <b>" + cov.toFixed(2) + "%</b>　连通区域 <b>" + comps.length + "</b>\n";
+  if(big) html += "最大区域：" + (big.maxx - big.minx + 1) + "×" + (big.maxy - big.miny + 1) + " px（占遮罩 " + (big.px * 100).toFixed(1) + "%）\n";
+  html += warns.length ? ("\n⚠ " + warns.join("\n⚠ ")) : "\n✓ 未发现异常";
+  out(html);
+
+  if(cov > 0 && cov <= 85) log("遮罩自检通过：覆盖率 " + cov.toFixed(2) + "%，连通区域 " + comps.length, "o");
+  else log("遮罩自检异常：" + (warns[0] || "未知"), "w");
+}
+
+/* B：选区主色 / 亮度统计 + 提示词片段 */
+function maskStats(){
+  if(!S.paint){ out("请先载入图像"); return; }
+  const mask = S.paint.mask, src = S.paint.canvas;
+  const W = src.width, H = src.height;
+  const md = mask.getContext("2d").getImageData(0, 0, W, H).data;
+  const sd = src.getContext("2d").getImageData(0, 0, W, H).data;
+  const step = Math.max(1, Math.floor(Math.min(W, H) / 400));
+  let n = 0, r = 0, g = 0, b = 0;
+  const lums = [];
+  for(let y = 0; y < H; y += step){
+    for(let x = 0; x < W; x += step){
+      const i = (y * W + x) * 4;
+      if(md[i] <= 127) continue;
+      r += sd[i]; g += sd[i + 1]; b += sd[i + 2];
+      lums.push(0.2126 * sd[i] + 0.7152 * sd[i + 1] + 0.0722 * sd[i + 2]);
+      n++;
+    }
+  }
+  if(!n){ out("选区为空：先绘制遮罩再做统计"); return; }
+  r = Math.round(r / n); g = Math.round(g / n); b = Math.round(b / n);
+  const ml = lums.reduce((a, v) => a + v, 0) / n;
+  const sd_ = Math.sqrt(lums.reduce((a, v) => a + (v - ml) * (v - ml), 0) / n);
+  const hex = "#" + [r, g, b].map(v => v.toString(16).padStart(2, "0")).join("");
+  const tone = ml > 200 ? "高亮" : ml > 150 ? "亮" : ml > 95 ? "中灰" : ml > 50 ? "暗" : "深暗";
+  const cont = sd_ > 60 ? "强对比" : sd_ > 32 ? "中等对比" : "低对比（近平涂）";
+  const chroma = Math.max(r, g, b) - Math.min(r, g, b);
+  const hue = chroma < 12 ? "中性灰" : (r >= g && r >= b) ? (g > b ? "暖" : "偏品红") : (g >= b ? "偏绿" : (b > 120 ? "偏蓝" : "偏黄"));
+
+  const seg = "该区域当前为" + tone + hue + "色（约 " + hex + "，平均亮度 " + (ml / 255).toFixed(2) + "，" + cont + "）";
+  let html = "<b>选区统计</b>（采样 " + n + " 像素）\n";
+  html += "平均色 " + hex + "　RGB(" + r + "," + g + "," + b + ")\n";
+  html += "平均亮度 " + (ml / 255).toFixed(3) + "　亮度标准差 " + sd_.toFixed(1) + "　色调 " + hue + "　" + tone + "　" + cont + "\n\n";
+  html += "<b>可插入提示词</b>\n" + seg;
+  out(html);
+
+  const bar = $("candBar");
+  bar.innerHTML = "";
+  const b1 = document.createElement("button");
+  b1.textContent = "把描述追加到提示词";
+  b1.onclick = () => { $("prompt").value = ($("prompt").value.trim() + "，" + seg).replace(/^，/, ""); persist(); log("已追加选区描述到提示词"); };
+  bar.appendChild(b1);
+  log("选区统计完成：" + hex + " 亮度 " + (ml / 255).toFixed(2) + " " + cont);
+}
+
+/* C：候选框建议（边缘密度） */
+function suggestBoxes(){
+  if(!S.paint){ out("请先载入图像"); return; }
+  const src = S.paint.canvas, W = src.width, H = src.height;
+  const gw = Math.max(4, Math.round(W / 160)), gh = Math.max(4, Math.round(H / 160));
+  const sc = mkCanvas(gw, gh), sx = sc.getContext("2d");
+  sx.drawImage(src, 0, 0, gw, gh);
+  const d = sx.getImageData(0, 0, gw, gh).data;
+  const g = new Float32Array(gw * gh);
+  for(let i = 0, j = 0; i < d.length; i += 4, j++) g[j] = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+
+  // Sobel 幅度
+  const mag = new Float32Array(gw * gh);
+  for(let y = 1; y < gh - 1; y++){
+    for(let x = 1; x < gw - 1; x++){
+      const i = y * gw + x;
+      const gx = -g[i - gw - 1] - 2 * g[i - 1] - g[i + gw - 1] + g[i - gw + 1] + 2 * g[i + 1] + g[i + gw + 1];
+      const gy = -g[i - gw - 1] - 2 * g[i - gw] - g[i - gw + 1] + g[i + gw - 1] + 2 * g[i + gw] + g[i + gw + 1];
+      mag[i] = Math.hypot(gx, gy);
+    }
+  }
+  // 粗网格统计（3 列 × 3 行）
+  const cols = 3, rows = 3;
+  const bw = Math.floor(gw / cols), bh = Math.floor(gh / rows);
+  const cells = [];
+  for(let cy = 0; cy < rows; cy++){
+    for(let cx = 0; cx < cols; cx++){
+      let s = 0, n = 0;
+      for(let y = cy * bh; y < (cy + 1) * bh; y++){
+        for(let x = cx * bw; x < (cx + 1) * bw; x++){ s += mag[y * gw + x]; n++; }
+      }
+      cells.push({ cx, cy, score: s / Math.max(1, n) });
+    }
+  }
+  cells.sort((a, b) => b.score - a.score);
+  const top = cells.slice(0, 4);
+  const boxes = top.map(c => {
+    const x0 = align32(c.cx * (W / cols)), y0 = align32(c.cy * (H / rows));
+    const x1 = align32((c.cx + 1) * (W / cols)), y1 = align32((c.cy + 1) * (H / rows));
+    return { x0, y0, x1: Math.min(W, x1), y1: Math.min(H, y1), score: c.score };
+  });
+
+  let html = "<b>候选选区</b>（Sobel 边缘密度，9 宫格）\n";
+  boxes.forEach((b, i) => {
+    html += "候选 " + (i + 1) + "：" + b.x0 + "," + b.y0 + " → " + b.x1 + "," + b.y1 + "（" + (b.x1 - b.x0) + "×" + (b.y1 - b.y0) + "，密度 " + b.score.toFixed(1) + "）\n";
+  });
+  html += "\n点击下方按钮套用为矩形遮罩（会叠加到现有遮罩）";
+  out(html);
+
+  const bar = $("candBar");
+  bar.innerHTML = "";
+  boxes.forEach((b, i) => {
+    const btn = document.createElement("button");
+    btn.textContent = "套用候选 " + (i + 1);
+    btn.onclick = () => {
+      const c = paintCtx();
+      c.save(); c.fillStyle = "#fff";
+      c.fillRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
+      c.restore();
+      invalidateOverlay(); render(); scheduleCoverage();
+      log("已套用候选 " + (i + 1) + "：" + b.x0 + "," + b.y0 + " " + (b.x1 - b.x0) + "×" + (b.y1 - b.y0));
+    };
+    bar.appendChild(btn);
+  });
+  log("候选框建议已生成 " + boxes.length + " 个");
+}
+
+/* ==================================================================
+   请求组装
+   ================================================================== */
+function sampleParams(){
+  const sp = {
+    sample_steps: +$("steps").value,
+    sample_method: $("sampler").value,
+    scheduler: $("sched").value,
+    eta: +$("eta").value,
+    guidance: { txt_cfg: +$("cfg").value, distilled_guidance: +$("dg").value }
+  };
+  const sh = $("shift").value.trim();
+  if(sh !== "" && $("sched").value !== "default") sp.flow_shift = +sh;
+  return sp;
+}
+function seedValue(){
+  const t = $("seed").value.trim();
+  return t === "" ? Math.floor(Math.random() * 2147483647) : +t;
+}
+function targetSize(){
+  if(S.mode === "edit" && S.base) return { w: S.base.canvas.width, h: S.base.canvas.height };
+  return { w: align32($("w").value), h: align32($("h").value) };
+}
+/* 遮罩导出为不透明 PNG（白=重绘、黑=保留），供引擎 mask_image 使用 */
+function maskDataURL(mask){
+  const w = mask.width, h = mask.height;
+  const t = mkCanvas(w, h), x = t.getContext("2d");
+  x.fillStyle = "#000"; x.fillRect(0, 0, w, h);
+  x.drawImage(mask, 0, 0);
+  return t.toDataURL("image/png");
+}
+/* 标注烧录：把遮罩以红色半透明 + 描边画进图像副本 */
+function annotateDataURL(obj){
+  const c = mkCanvas(obj.canvas.width, obj.canvas.height), x = c.getContext("2d");
+  x.drawImage(obj.canvas, 0, 0);
+  const ov = mkCanvas(obj.canvas.width, obj.canvas.height), oc = ov.getContext("2d");
+  oc.drawImage(obj.mask, 0, 0);
+  oc.globalCompositeOperation = "source-in";
+  oc.fillStyle = "rgba(255,48,48,.55)";
+  oc.fillRect(0, 0, ov.width, ov.height);
+  x.drawImage(ov, 0, 0);
+  return c.toDataURL("image/png");
+}
+
+function buildPayload(){
+  const size = targetSize();
+  const payload = {
+    prompt: $("prompt").value,
+    negative_prompt: $("neg").value,
+    width: size.w,
+    height: size.h,
+    seed: seedValue(),
+    sample_params: sampleParams()
+  };
+  if(S.mode === "edit"){
+    payload.init_image = S.base.canvas.toDataURL("image/png");
+    payload.mask_image = maskDataURL(S.base.mask);
+    payload.strength = +$("strength").value;
+  }else if(S.mode === "ref"){
+    const burn = $("burn").checked;
+    payload.ref_images = S.refs.map(r => burn ? annotateDataURL(r) : r.canvas.toDataURL("image/png"));
+    if($("autoresize").checked) payload.auto_resize_ref_image = true;
+  }
+  const bt = +$("batch").value;
+  if(bt > 1) payload.batch_count = bt;
+  return payload;
+}
+
+/* ==================================================================
+   生成
+   ================================================================== */
+async function generate(){
+  if(S.busy) return;
+  if(!BASE){ const h = await scan(); if(!h) return; }
+  // 校验
+  if(S.mode === "edit"){
+    if(!S.base){ log("局部改图需要先载入底图", "e"); return; }
+    const cov = maskCoverage(S.base.mask);
+    if(cov <= 0){ log("遮罩为空，请先在画布上绘制选区", "e"); return; }
+    if(cov < 0.2) log("警告：遮罩覆盖率 " + cov.toFixed(2) + "% 过小，模型可能无响应", "w");
+  }
+  if(S.mode === "ref"){
+    if(!S.refs.length){ log("图参照模式至少需要 1 张参考图", "e"); return; }
+    if(!$("prompt").value.trim()){ log("图参照模式需要提示词描述修改目标", "e"); return; }
+  }
+  if(S.mode === "t2i" && !$("prompt").value.trim()){ log("提示词为空", "e"); return; }
+
+  S.busy = true; $("btnGen").disabled = true; $("prog").style.width = "2%";
+  const payload = buildPayload();
+  const kb = (JSON.stringify(payload).length / 1024).toFixed(0);
+  log("POST img_gen  mode=" + S.mode + "  seed=" + payload.seed + "  " + payload.width + "×" + payload.height +
+      "  steps=" + payload.sample_params.sample_steps + "  cfg=" + payload.sample_params.guidance.txt_cfg +
+      "  " + payload.sample_params.sample_method + "/" + payload.sample_params.scheduler +
+      (payload.strength !== undefined ? ("  strength=" + payload.strength) : "") + "  请求体 " + kb + " KB");
+  const t0 = performance.now();
+  try{
+    const r = await fetch(BASE + "/sdcpp/v1/img_gen", {
+      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)
+    });
+    if(r.status === 400){
+      const t = await r.text();
+      log("参数被拒(400)：" + t.slice(0, 300), "e");
+      log("常见原因：图片字段格式错误（必须是 dataURL 字符串）或尺寸非 32 倍数", "w");
+      throw new Error("bad request");
+    }
+    const job = await r.json();
+    if(!job.poll_url){
+      log("提交失败：" + JSON.stringify(job).slice(0, 400), "e");
+      throw new Error("submit failed");
+    }
+    const jid = job.poll_url.replace(/\/$/, "").split("/").pop();
+    log("任务已受理 job=" + jid);
+    let tick = 0, j = null;
+    while(true){
+      await new Promise(s => setTimeout(s, 3000));
+      const rr = await fetch(BASE + "/sdcpp/v1/jobs/" + jid);
+      j = await rr.json();
+      tick += 3;
+      $("prog").style.width = Math.min(95, 3 + tick * 0.35) + "%";
+      const st = j.status;
+      if(st === "completed" || st === "succeeded" || st === "done") break;
+      if(st === "failed" || st === "error" || st === "canceled"){
+        log("任务失败：" + JSON.stringify(j).slice(0, 500), "e");
+        throw new Error("job failed");
+      }
+      if(tick > POLL_MAX){ log("轮询超时（" + POLL_MAX + "s）", "e"); throw new Error("timeout"); }
+      if(tick % 30 === 0) log("运行中… 已 " + tick + "s  status=" + st);
+    }
+    const img = j.result && j.result.images && j.result.images[0];
+    if(!img || !img.b64_json){ log("返回无图像数据：" + JSON.stringify(j).slice(0, 400), "e"); throw new Error("no image"); }
+    const secs = +((performance.now() - t0) / 1000).toFixed(1);
+
+    let finalB64 = img.b64_json, composed = false, cov = null;
+    if(S.mode === "edit"){
+      cov = maskCoverage(S.base.mask);
+      if($("protect").checked){
+        finalB64 = await compositeProtected(img.b64_json, S.base.canvas, S.base.mask, +$("feather").value);
+        composed = true;
+      }
+    }
+    const stamp = Date.now();
+    S.result = {
+      b64: finalB64,
+      rawB64: img.b64_json,
+      secs, payload, composed, coverage: cov,
+      name: "LocModel_" + stamp + "_" + S.mode + ".png",
+      rawName: "LocModel_" + stamp + "_" + S.mode + "_raw.png",
+      maskName: "LocModel_" + stamp + "_" + S.mode + "_mask.png"
+    };
+    $("prog").style.width = "100%";
+    ["btnDl", "btnDlRaw", "btnLib", "btnIdx", "btnCopy"].forEach(id => $(id).disabled = false);
+    $("btnDlMask").disabled = !(S.mode === "edit" && S.base);
+    S.view = "result"; setView("result");
+    $("meta").textContent = [
+      "模式 " + S.mode + "　档位 " + S.tier + "　seed " + payload.seed + "　" + payload.width + "×" + payload.height,
+      "steps " + payload.sample_params.sample_steps + "  cfg " + payload.sample_params.guidance.txt_cfg +
+        "  " + payload.sample_params.sample_method + "/" + payload.sample_params.scheduler +
+        "  shift " + (payload.sample_params.flow_shift ?? "-") + "  eta " + payload.sample_params.eta +
+        (payload.strength !== undefined ? ("  strength " + payload.strength) : ""),
+      "耗时 " + secs + "s" + (composed ? "　掩码外已合成保护" : "") + (cov !== null ? "　遮罩覆盖率 " + cov.toFixed(2) + "%" : "") +
+        (payload.batch_count ? "　批量 " + payload.batch_count : "")
+    ].join("\n");
+    log("完成，耗时 " + secs + "s" + (composed ? "（已做掩码外合成保护）" : ""), "o");
+  }catch(e){
+    log("异常：" + (e && e.message || e), "e");
+    $("prog").style.width = "0";
+  }finally{
+    S.busy = false; $("btnGen").disabled = false;
+  }
+}
+
+/* 掩码外合成保护：掩码白=取引擎结果，黑=还原底图，羽化按灰度线性混合 */
+function compositeProtected(resB64, baseCanvas, mask, feather){
+  return new Promise(resolve => {
+    const W = baseCanvas.width, H = baseCanvas.height;
+    const res = new Image();
+    res.onload = () => {
+      const rc = mkCanvas(W, H), rx = rc.getContext("2d");
+      rx.drawImage(res, 0, 0, W, H);
+      let m = mask;
+      if(feather > 0){
+        const fc = mkCanvas(W, H), fx = fc.getContext("2d");
+        if("filter" in fx) fx.filter = "blur(" + feather + "px)";
+        fx.drawImage(mask, 0, 0);
+        m = fc;
+      }
+      const bd = baseCanvas.getContext("2d").getImageData(0, 0, W, H).data;
+      const rd = rx.getImageData(0, 0, W, H).data;
+      const md = m.getContext("2d").getImageData(0, 0, W, H).data;
+      const out = mkCanvas(W, H), ox = out.getContext("2d");
+      const od = ox.createImageData(W, H);
+      const dst = od.data;
+      for(let i = 0; i < bd.length; i += 4){
+        const a = md[i] / 255;
+        if(a <= 0){
+          dst[i] = bd[i]; dst[i + 1] = bd[i + 1]; dst[i + 2] = bd[i + 2]; dst[i + 3] = 255;
+        }else if(a >= 1){
+          dst[i] = rd[i]; dst[i + 1] = rd[i + 1]; dst[i + 2] = rd[i + 2]; dst[i + 3] = 255;
+        }else{
+          dst[i] = bd[i] * (1 - a) + rd[i] * a;
+          dst[i + 1] = bd[i + 1] * (1 - a) + rd[i + 1] * a;
+          dst[i + 2] = bd[i + 2] * (1 - a) + rd[i + 2] * a;
+          dst[i + 3] = 255;
+        }
+      }
+      ox.putImageData(od, 0, 0);
+      const url = out.toDataURL("image/png");
+      resolve(url.split(",")[1]);
+    };
+    res.onerror = () => resolve(resB64);
+    res.src = "data:image/png;base64," + resB64;
+  });
+}
+
+/* ==================================================================
+   输出
+   ================================================================== */
+function b64ToBlob(b64, type){
+  const bin = atob(b64), u = new Uint8Array(bin.length);
+  for(let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return new Blob([u], {type: type || "image/png"});
+}
+function dl(b64, name, type){
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(b64ToBlob(b64, type));
+  a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  log("已下载 " + name);
+}
+function download(){ if(S.result) dl(S.result.b64, S.result.name); }
+function downloadRaw(){ if(S.result) dl(S.result.rawB64, S.result.rawName); }
+function downloadMask(){
+  if(!S.base) return;
+  const b64 = maskDataURL(S.base.mask).split(",")[1];
+  dl(b64, S.result ? S.result.maskName : ("mask_" + Date.now() + ".png"));
+}
+
+let dirHandle = null;
+async function ensureDir(){
+  if(!dirHandle) dirHandle = await window.showDirectoryPicker({ id: "locmodel_lib", mode: "readwrite" });
+  const st = await dirHandle.queryPermission({mode: "readwrite"});
+  if(st !== "granted"){
+    const req = await dirHandle.requestPermission({mode: "readwrite"});
+    if(req !== "granted") throw new Error("图库目录权限被拒绝");
+  }
+  return dirHandle;
+}
+async function writeFileToDir(dir, name, blob){
+  const fh = await dir.getFileHandle(name, {create: true});
+  const w = await fh.createWritable();
+  await w.write(blob); await w.close();
+}
+async function saveToLib(){
+  if(!S.result) return;
+  try{
+    const dir = await ensureDir();
+    await writeFileToDir(dir, S.result.name, b64ToBlob(S.result.b64));
+    log("已写入 " + dir.name + "\\" + S.result.name, "o");
+    if(S.result.rawB64 && S.result.rawB64 !== S.result.b64){
+      await writeFileToDir(dir, S.result.rawName, b64ToBlob(S.result.rawB64));
+      log("已写入引擎原始 " + S.result.rawName, "o");
+    }
+    if(S.mode === "edit" && S.base){
+      const mb = b64ToBlob(maskDataURL(S.base.mask).split(",")[1]);
+      await writeFileToDir(dir, S.result.maskName, mb);
+      log("已写入遮罩 " + S.result.maskName, "o");
+    }
+  }catch(e){ log("写入图库失败：" + (e && e.message || e), "e"); }
+}
+
+let idxHandle = null;
+async function writeIndex(){
+  if(!S.result) return;
+  try{
+    if(!idxHandle){
+      const [fh] = await window.showOpenFilePicker({
+        id: "images_json",
+        types: [{description: "images.json", accept: {"application/json": [".json"]}}],
+        multiple: false
+      });
+      idxHandle = fh; log("已选中索引文件：" + idxHandle.name);
+    }
+    const raw = await (await idxHandle.getFile()).text();
+    let arr;
+    try{ arr = JSON.parse(raw); }catch(e){ log("索引文件不是合法 JSON，已中止（不覆盖）", "e"); return; }
+    if(!Array.isArray(arr)){ log("索引顶层不是数组，已中止（不覆盖）", "e"); return; }
+    const before = arr.length, p = S.result.payload;
+    const entry = {
+      path: S.result.name,
+      prompt: p.prompt,
+      negative_prompt: p.negative_prompt,
+      model: "qwen_image_2.1-" + S.tier,
+      width: p.width, height: p.height,
+      steps: p.sample_params.sample_steps,
+      cfg_scale: p.sample_params.guidance.txt_cfg,
+      seed: p.seed,
+      time: Date.now(),
+      secs: S.result.secs,
+      kind: "image", frames: 1, fps: 0,
+      // v2.0 追加字段（不改原生字段）
+      mode: S.mode,
+      strength: p.strength ?? null,
+      mask_coverage: S.result.coverage === null ? null : +S.result.coverage.toFixed(3),
+      recomposed: !!S.result.composed,
+      ref_count: S.mode === "ref" ? S.refs.length : 0
+    };
+    arr.push(entry);
+    const w = await idxHandle.createWritable();
+    await w.write(JSON.stringify(arr, null, 2)); await w.close();
+    log("索引已追加 1 条（" + before + " → " + arr.length + "）", "o");
+  }catch(e){ log("写入索引失败：" + (e && e.message || e), "e"); }
+}
+function copyJson(){
+  if(!S.result) return;
+  const txt = JSON.stringify(S.result.payload, (k, v) => {
+    if(typeof v === "string" && v.startsWith("data:image")) return v.slice(0, 48) + "…(" + v.length + " chars)";
+    return v;
+  }, 2);
+  navigator.clipboard.writeText(txt).then(
+    () => log("请求 JSON 已复制（图片字段已省略长串）"),
+    () => log("复制失败，请手动选取", "e")
+  );
+}
+
+/* ==================================================================
+   预设与持久化
+   ================================================================== */
+function applyTier(t, quiet){
+  S.tier = t;
+  document.querySelectorAll("#tier button").forEach(b => b.classList.toggle("sel", b.dataset.t === t));
+  const c = CAL.tiers[t];
+  $("cfg").value = c.cfg;
+  $("steps").value = (S.mode === "edit" ? CAL.edit.steps : CAL.common.steps);
+  $("sampler").value = CAL.common.sampler;
+  $("sched").value = CAL.common.sched;
+  $("shift").value = CAL.common.shift;
+  $("dg").value = CAL.common.dg;
+  $("eta").value = CAL.common.eta;
+  const n = c.extraNeg ? (CAL.baseNeg + "，" + c.extraNeg) : CAL.baseNeg;
+  $("neg").value = n;
+  if(S.mode === "edit") $("strength").value = CAL.edit.strength;
+  if(!quiet) log("已套用 " + t + " 校准预设（cfg " + c.cfg + " / discrete shift " + CAL.common.shift + " / " +
+    (S.mode === "edit" ? CAL.edit.steps : CAL.common.steps) + " 步）");
+  persist();
+}
+function persist(){
+  const st = {
+    port: BASE ? +BASE.split(":").pop() : null,
+    mode: S.mode, tier: S.tier,
+    prompt: $("prompt").value, neg: $("neg").value,
+    w: $("w").value, h: $("h").value, steps: $("steps").value, cfg: $("cfg").value,
+    sampler: $("sampler").value, sched: $("sched").value, shift: $("shift").value,
+    dg: $("dg").value, eta: $("eta").value, seed: $("seed").value,
+    strength: $("strength").value, feather: $("feather").value, batch: $("batch").value,
+    protect: $("protect").checked, burn: $("burn").checked, autoresize: $("autoresize").checked
+  };
+  localStorage.setItem(LS, JSON.stringify(st));
+}
+function restore(){
+  const s = JSON.parse(localStorage.getItem(LS) || "{}");
+  $("prompt").value = s.prompt || DEF_PROMPT;
+  ["w", "h", "seed"].forEach(k => { if(s[k] !== undefined) $(k).value = s[k]; });
+  setMode(s.mode || "edit");
+  applyTier((s.tier && CAL.tiers[s.tier]) ? s.tier : "Q4_K", true);
+  ["steps", "cfg", "sampler", "sched", "shift", "dg", "eta", "strength", "feather", "batch"].forEach(k => {
+    if(s[k] !== undefined && s[k] !== "") $(k).value = s[k];
+  });
+  if(s.neg) $("neg").value = s.neg;
+  if(s.protect !== undefined) $("protect").checked = !!s.protect;
+  if(s.burn !== undefined) $("burn").checked = !!s.burn;
+  if(s.autoresize !== undefined) $("autoresize").checked = !!s.autoresize;
+  if(s.port){ BASE = "http://127.0.0.1:" + s.port; setConn("wait", "上次端口 :" + s.port + "（未验证）"); }
+}
+
+/* ==================================================================
+   尺寸显示
+   ================================================================== */
+function updateSizePill(){
+  if(S.mode === "edit" && S.base) $("sizePill").textContent = S.base.canvas.width + "×" + S.base.canvas.height + "（底图）";
+  else if(S.mode === "ref" && S.paint) $("sizePill").textContent = "目标 " + align32($("w").value) + "×" + align32($("h").value);
+  else $("sizePill").textContent = align32($("w").value) + "×" + align32($("h").value);
+}
+function setView(v){
+  S.view = v;
+  document.querySelectorAll("[data-view]").forEach(b => b.classList.toggle("sel", b.dataset.view === v));
+  render();
+}
+
+/* ==================================================================
+   事件绑定
+   ================================================================== */
+function bindUI(){
+  document.querySelectorAll("#modes button").forEach(b => b.onclick = () => setMode(b.dataset.m));
+  document.querySelectorAll("#tier button").forEach(b => b.onclick = () => applyTier(b.dataset.t));
+  document.querySelectorAll("[data-tool]").forEach(b => {
+    b.onclick = () => {
+      S.tool = b.dataset.tool;
+      document.querySelectorAll("[data-tool]").forEach(x => x.classList.toggle("sel", x.dataset.tool === S.tool));
+    };
+  });
+  document.querySelectorAll("[data-view]").forEach(b => b.onclick = () => setView(b.dataset.view));
+  $("brush").oninput = () => { S.brush = +$("brush").value; $("brushPill").textContent = S.brush + " px"; };
+
+  $("btnLoadBase").onclick = () => $("fileBase").click();
+  $("btnLoadRef").onclick = () => $("fileRef").click();
+  $("fileBase").onchange = e => { if(e.target.files[0]) loadBaseFile(e.target.files[0]); e.target.value = ""; };
+  $("fileRef").onchange = e => {
+    const fs = Array.from(e.target.files || []);
+    (async () => { for(const f of fs){ if(S.refs.length >= 4) break; await loadRefFile(f); } })();
+    e.target.value = "";
+  };
+  $("btnPaste").onclick = async () => {
+    try{
+      const items = await navigator.clipboard.read();
+      for(const it of items){
+        const t = it.types.find(t => t.startsWith("image/"));
+        if(t){ const blob = await it.getType(t); const f = new File([blob], "clipboard.png", {type: t}); await loadBaseFile(f); return; }
+      }
+      log("剪贴板中没有图片", "w");
+    }catch(e){ log("读取剪贴板失败：" + e.message + "（可用 Ctrl+V）", "e"); }
+  };
+  document.addEventListener("paste", e => {
+    const it = Array.from(e.clipboardData?.items || []).find(i => i.type.startsWith("image/"));
+    if(it){ const f = it.getAsFile(); if(f) loadBaseFile(f); }
+  });
+  const wrap = $("stageWrap");
+  wrap.addEventListener("dragover", e => { e.preventDefault(); });
+  wrap.addEventListener("drop", e => {
+    e.preventDefault();
+    const fs = Array.from(e.dataTransfer?.files || []).filter(f => f.type.startsWith("image/"));
+    if(!fs.length) return;
+    if(S.mode === "ref"){ (async () => { for(const f of fs){ if(S.refs.length >= 4) break; await loadRefFile(f); } })(); }
+    else loadBaseFile(fs[0]);
+  });
+  $("btnClearImg").onclick = () => {
+    if(S.mode === "ref"){ S.refs = []; S.activeRef = -1; }
+    else S.base = null;
+    attachPaint(); updateRefStrip(); render();
+    $("covPill").innerHTML = "覆盖 <b>0%</b>";
+    log("已清空图像");
+  };
+  $("btnAll").onclick = () => {
+    if(!S.paint){ log("请先载入图像", "w"); return; }
+    const c = paintCtx();
+    c.save(); c.fillStyle = "#fff"; c.fillRect(0, 0, S.paint.mask.width, S.paint.mask.height); c.restore();
+    invalidateOverlay(); render(); scheduleCoverage(); log("已全选");
+  };
+  $("btnInv").onclick = () => {
+    if(!S.paint) return;
+    const m = S.paint.mask, x = m.getContext("2d");
+    const d = x.getImageData(0, 0, m.width, m.height), a = d.data;
+    // 反选：白/透明互换，alpha 与遮罩强度保持一致
+    for(let i = 0; i < a.length; i += 4){
+      const inside = a[i] > 127;
+      a[i] = a[i + 1] = a[i + 2] = inside ? 0 : 255;
+      a[i + 3] = inside ? 0 : 255;
+    }
+    x.putImageData(d, 0, 0);
+    invalidateOverlay(); render(); scheduleCoverage(); log("已反选");
+  };
+  $("btnClearMask").onclick = () => {
+    if(!S.paint) return;
+    const x = paintCtx();
+    x.save(); x.globalCompositeOperation = "source-over";
+    x.clearRect(0, 0, S.paint.mask.width, S.paint.mask.height); x.restore();
+    invalidateOverlay(); render(); scheduleCoverage(); log("已清空遮罩");
+  };
+
+  $("btnCheck").onclick = checkMask;
+  $("btnStats").onclick = maskStats;
+  $("btnSuggest").onclick = suggestBoxes;
+
+  $("btnScan").onclick = scan;
+  $("btnGen").onclick = generate;
+  $("btnDl").onclick = download;
+  $("btnDlRaw").onclick = downloadRaw;
+  $("btnDlMask").onclick = downloadMask;
+  $("btnLib").onclick = saveToLib;
+  $("btnIdx").onclick = writeIndex;
+  $("btnCopy").onclick = copyJson;
+
+  ["prompt", "neg", "w", "h", "steps", "cfg", "sampler", "sched", "shift", "dg", "eta", "seed",
+   "strength", "feather", "batch"].forEach(id => $(id).addEventListener("change", () => { persist(); updateSizePill(); }));
+  ["protect", "burn", "autoresize"].forEach(id => $(id).addEventListener("change", persist));
+
+  window.addEventListener("keydown", e => {
+    if(e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT") return;
+    const map = {b: "brush", e: "eraser", r: "rect", o: "ellipse", l: "lasso"};
+    if(map[e.key.toLowerCase()]){
+      S.tool = map[e.key.toLowerCase()];
+      document.querySelectorAll("[data-tool]").forEach(x => x.classList.toggle("sel", x.dataset.tool === S.tool));
+    }
+    if(e.key === "[") { S.brush = Math.max(4, S.brush - 4); $("brush").value = S.brush; $("brushPill").textContent = S.brush + " px"; }
+    if(e.key === "]") { S.brush = Math.min(200, S.brush + 4); $("brush").value = S.brush; $("brushPill").textContent = S.brush + " px"; }
+  });
+}
+
+/* ==================================================================
+   启动
+   ================================================================== */
+window.addEventListener("DOMContentLoaded", () => {
+  bindUI();
+  bindCanvas();
+  restore();
+  updateSizePill();
+  render();
+  log("注入器 v2.0 就绪｜模式：文生图 / 图参照生图 / 局部改图");
+  log("校准结论：euler + discrete + flow_shift 3.0 + 28 步 + cfg 1.6（改图 24 步 / strength 0.85）");
+  if(BASE){
+    (async () => {
+      const r = await probe(+BASE.split(":").pop());
+      if(r){
+        setConn("on", "已连接 :" + r.port);
+        const m = (r.caps && r.caps.model) || {};
+        $("modelPill").textContent = "模型 " + (m.name || "未知");
+        log("端口 " + r.port + " 复连成功", "o");
+      }else{ setConn("", "未连接"); log("上次端口不可用，请点「探测端口」", "w"); }
+    })();
+  }
+});
+</script>
+</body>
+</html>
