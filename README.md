@@ -4,7 +4,7 @@
 
 > A single-file web tool that talks directly to the `sd-server` engine (stable-diffusion.cpp) bundled with LocModel, bypassing the GUI's hard-coded parameters, injecting the *correct* sampling parameters per request — plus a measured, calibrated parameter preset for Qwen-Image 2.1 and mask-based local inpainting that the LocModel GUI does not provide.
 
-- Version: v2.0 (Nov 2026)
+- Version: v2.2 (Nov 2026) — v2.1 added weighted port discovery, v2.2 added live stop / poll-timeout guard / force reset
 - Form factor: **one HTML file — no install, no dependencies, no config residue**
 - Engine: stable-diffusion.cpp (`sd-server.exe`, LocModel build `master-1050-58bb3c1-cuda`)
 - Tested on: RTX 3060 Ti 8 GB / Windows 10 19045 / Qwen-Image 2.1 (Q3_K, Q4_K, Q6_K) + Qwen3-VL 8B text encoder
@@ -22,6 +22,7 @@
 - [Usage](#usage)
 - [Masked inpainting in depth](#masked-inpainting-in-depth)
 - [Engine API contract](#engine-api-contract)
+- [Generation control (v2.2)](#generation-control-v22)
 - [Known limits and pitfalls](#known-limits-and-pitfalls)
 - [Repository structure](#repository-structure)
 - [Reference documents](#reference-documents)
@@ -240,7 +241,7 @@ The edit (inpainting) channel defaults to **Q4_K**: Q3_K lacks detail and Q6_K t
 
 ### Parameter panel
 
-- Automatic port probing (tries 8790 / 8686 / 8899 / 8080 / 7860 / 1234 / 9090 / 5000 in turn; locks on to whichever answers `/sdcpp/v1/capabilities`)
+- Weighted port discovery (v2.1): last successful port (re-verified against the `/sdcpp/v1/capabilities` fingerprint) → seed ports 8790 / 8686 → 8899 → range 8790–8810 → range 8000–9000 with 64-way concurrency; a port is accepted only when the fingerprint matches
 - Panel fields are generated dynamically from `capabilities.defaults_by_mode` — nothing hard-coded
 - Three-level parameter restore:
   - **L1 engine raw default** (e.g. `txt_cfg=7.0`, flagged in red as "this value is wrong")
@@ -248,6 +249,18 @@ The edit (inpainting) channel defaults to **Q4_K**: Q3_K lacks detail and Q6_K t
   - **L3 measured recommendation** (`txt_cfg=1.6` + `discrete` + `shift 3.0` + 28 steps)
 - Resolution auto-validated against `size_multiple` (32)
 - Negatives auto-appended per quantization tier
+
+### Generation control (v2.2)
+
+| Feature | Behaviour |
+|---|---|
+| Live stop button | While a job is running the generate button turns red and reads **Stop**. Clicking sends `POST /sdcpp/v1/jobs/{job_id}/cancel` with no timeout cap, the button switches to **Stopping…** (disabled), and each stage is logged: request sent → engine still finishing → engine confirmed `cancelled` (with elapsed time) |
+| Poll-timeout guard | A *poll timeout* field inside the sampling-parameter card, in minutes, `0` = unlimited (the default), plus quick buttons **unlimited / 30 / 60 / 120**; a pill next to it shows the current setting |
+| Timeout reached, engine still healthy | A healthy job is never killed silently: a modal offers **Stop generation** / **Extend 30 minutes** / **Close (keep running)**. Ignore it and generation continues; extend adds 30 minutes and re-arms the timer; close suppresses prompts for the current run only |
+| 15 s grace after stop | If the engine has not settled within 15 s, exactly one log line is appended (`engine still aborting after 15 s`) and a secondary **Force reset engine** button is revealed |
+| Force reset (double confirmation) | The confirmation modal spells out the order: snapshot `/sdcpp/v1/models/status` → `POST /sdcpp/v1/models/unload` → if the snapshot carries a usable recipe/models, `POST /sdcpp/v1/models/load` to restore. The log states whether the model was reloaded automatically or must be loaded manually. The in-flight job is abandoned |
+| Queue feedback | Submitting while the engine is still busy is reported as `status=queued` — "waiting behind the previous job, not a submit failure" — instead of a silent no-op |
+| No auto-retry | Deliberate omission: there is no "retry last parameters" button, so that a job the engine has not actually released is never resubmitted silently |
 
 ### Gallery integration
 
@@ -388,6 +401,8 @@ Field format gotchas:
 | Color side effect | Dropping cfg from 6.0 to 1.6 lowers overall saturation; compensate in the prompt or with +15–25 in post |
 | Not covered | Q8_0 untested (8 GB cards offload heavily); multi-seed stability validation pending |
 | Version coupling | Depends on LocModel's bundled engine HTTP contract; major LocModel upgrades may change fields, requiring re-alignment against `capabilities` |
+| Cancel support | `POST /sdcpp/v1/jobs/{job_id}/cancel` only works on engines that expose it; once a job has been released the endpoint answers `404 job not found`, and the UI keeps polling until the state settles instead of assuming success |
+| Force reset cost | Unloading during active sampling has not yet been verified on a real GPU run; if the sampler cannot be interrupted, the reload blocks until the current step finishes |
 
 ---
 
@@ -398,7 +413,9 @@ LocModel-Image-Injector/
 ├── README.md                      # English (this file)
 ├── README.zh-CN.md                # Simplified Chinese
 ├── injector/
-│   ├── LocModel-Injector-v2.0.html    # Latest (single file, zero dependency)
+│   ├── LocModel-Injector-v2.2.html    # Latest (single file, zero dependency)
+│   ├── LocModel-Injector-v2.1.html    # Weighted port discovery + fingerprint re-verification
+│   ├── LocModel-Injector-v2.0.html    # Masked inpainting + calibrated presets
 │   └── LocModel-Injector-v1.0.html    # Legacy, kept for reference
 └── docs/
     ├── images/
